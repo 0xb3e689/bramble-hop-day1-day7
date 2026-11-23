@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Bramble Hop — Day 1 vs Day 7 Renderer</title>
+  <style>
+    html, body { margin: 0; padding: 0; background: #000; overflow: hidden; }
+    canvas { display: block; width: 1080px; height: 1920px; image-rendering: pixelated; }
+  </style>
+</head>
+<body>
+  <canvas id="c" width="1080" height="1920"></canvas>
+  <script type="module">
+    import { BrambleSim, renderDay1, renderDay7, LW, LH, WIDTH, HEIGHT } from './engine.js';
+
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.imageSmoothingEnabled = false;
+
+    const off1 = document.createElement('canvas');
+    off1.width = LW;
+    off1.height = LH;
+    const ctx1 = off1.getContext('2d');
+    ctx1.imageSmoothingEnabled = false;
+
+    const off7 = document.createElement('canvas');
+    off7.width = LW;
+    off7.height = LH;
+    const ctx7 = off7.getContext('2d');
+    ctx7.imageSmoothingEnabled = false;
+
+    const sim = new BrambleSim({ scripted: true, seed: 20261124 });
+    const FPS = 60;
+    const DT = 1 / FPS;
+
+    // Clean, understated devlog cut timeline — zero neon pills, zero hype copy.
+    // Cuts hit on identical mid-jump / landing moments so the locked camera tells the story.
+    const SEGMENTS = [
+      { start: 0.00, end: 1.80, mode: 'day1', label: 'day 1', sub: 'same tiny game, one week apart' },
+      { start: 1.80, end: 3.80, mode: 'day7', label: 'day 7', sub: '' },
+      { start: 3.80, end: 5.60, mode: 'day1', label: 'day 1', sub: '' },
+      { start: 5.60, end: 7.60, mode: 'day7', label: 'day 7', sub: '' },
+      { start: 7.60, end: 8.80, mode: 'day1', label: 'day 1', sub: '' },
+      { start: 8.80, end: 10.80, mode: 'split', label: '', sub: '' },
+      { start: 10.80, end: 18.20, mode: 'day7', label: 'day 7', sub: '' },
+      { start: 18.20, end: 23.00, mode: 'day7', label: '', sub: '' },
+    ];
+
+    function getSegment(t) {
+      for (const s of SEGMENTS) {
+        if (t >= s.start && t < s.end) return s;
+      }
+      return SEGMENTS[SEGMENTS.length - 1];
+    }
+
+    function drawQuietLabel(ctx, text, x, y, size = 48, alpha = 1) {
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.font = `700 ${size}px "Avenir Next", "Helvetica Neue", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(12, 10, 18, 0.72)';
+      ctx.shadowBlur = 12;
+      ctx.shadowOffsetY = 3;
+      ctx.fillStyle = '#fffaf0';
+      ctx.fillText(text, x, y);
+      ctx.restore();
+    }
+
+    function renderFrameAtStep() {
+      sim.step(DT);
+      const t = sim.t;
+      const seg = getSegment(t);
+
+      ctx.imageSmoothingEnabled = false;
+      if (seg.mode === 'day1') {
+        renderDay1(ctx1, sim);
+        ctx.drawImage(off1, 0, 0, LW, LH, 0, 0, WIDTH, HEIGHT);
+      } else if (seg.mode === 'day7') {
+        renderDay7(ctx7, sim);
+        ctx.drawImage(off7, 0, 0, LW, LH, 0, 0, WIDTH, HEIGHT);
+      } else {
+        // Crisp 1-to-1 pixel-locked wipe across the room
+        renderDay1(ctx1, sim);
+        renderDay7(ctx7, sim);
+        const p = (t - seg.start) / (seg.end - seg.start);
+        // Smooth ease from right -> left -> center so the wipe reveals the whole room cleanly
+        const ease = 0.5 - 0.5 * Math.cos(p * Math.PI);
+        const dividerX = Math.round(WIDTH * (0.82 - 0.64 * ease));
+
+        ctx.drawImage(off7, 0, 0, LW, LH, 0, 0, WIDTH, HEIGHT);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, dividerX, HEIGHT);
+        ctx.clip();
+        ctx.drawImage(off1, 0, 0, LW, LH, 0, 0, WIDTH, HEIGHT);
+        ctx.restore();
+
+        // Thin clean 3px divider line (no neon bloom)
+        ctx.fillStyle = 'rgba(255, 250, 240, 0.92)';
+        ctx.fillRect(dividerX - 2, 0, 4, HEIGHT);
+
+        // Simple side labels
+        if (dividerX > 200) {
+          drawQuietLabel(ctx, 'day 1', Math.max(120, dividerX - 110), 235, 42, 0.95);
+        }
+        if (WIDTH - dividerX > 200) {
+          drawQuietLabel(ctx, 'day 7', Math.min(WIDTH - 120, dividerX + 110), 235, 42, 0.95);
+        }
+      }
+
+      // Minimal TikTok-native top label (quiet, clean, inside top safe zone)
+      if (seg.label) {
+        drawQuietLabel(ctx, seg.label, WIDTH / 2, 226, 54, 0.96);
+      }
+      if (seg.sub) {
+        drawQuietLabel(ctx, seg.sub, WIDTH / 2, 286, 30, 0.84);
+      }
+
+      // Quiet, honest closing invitation over live Day 7 gameplay (14.4s..18.2s)
+      // Placed cleanly at y=1600 (over the dark sunset pond, above TikTok's bottom UI)
+      if (t >= 14.4 && t < 18.2) {
+        const fade = Math.min(1, (t - 14.4) / 0.35);
+        drawQuietLabel(ctx, 'start yours at make.fun', WIDTH / 2, 1605, 42, fade * 0.96);
+      }
+    }
+
+    window.runCapture = async function runCapture(totalFrames, endpoint) {
+      for (let i = 0; i < totalFrames; i++) {
+        renderFrameAtStep();
+        const img = ctx.getImageData(0, 0, WIDTH, HEIGHT);
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'content-type': 'application/octet-stream', 'x-frame': String(i) },
+          body: img.data,
+        });
+        if (!res.ok) throw new Error(`Frame ${i} failed: ${res.status}`);
+      }
+      await fetch(endpoint + '?done=1', { method: 'POST' });
+      return totalFrames;
+    };
+
+    const params = new URLSearchParams(location.search);
+    if (params.get('capture') === '1') {
+      const total = Number(params.get('frames') || 1332);
+      window.runCapture(total, '/frame').catch((err) => {
+        console.error(err);
+        fetch('/error', { method: 'POST', body: String(err) });
+      });
+    } else {
+      function preview() {
+        renderFrameAtStep();
+        if (sim.t < 22.2) requestAnimationFrame(preview);
+      }
+      requestAnimationFrame(preview);
+    }
+  </script>
+</body>
+</html>
